@@ -92,6 +92,8 @@ class UpdateOneQuestion(threading.Thread):
                 t = int(t)
                 if t > top_answer_votes:
                     top_answer_votes = t
+        # Find out the top 5 ansers
+
 
         # print it to check if everything is good.
         if count_id % 1 == 0:
@@ -103,17 +105,17 @@ class UpdateOneQuestion(threading.Thread):
         self.cursor.execute(sql,(focus_amount,answer_amount,time_now,top_answer_votes,link_id))
 
         # Find out the topics related to this question
-        topics = soup.findAll('a',attrs={'class':'zm-item-tag'})
-        if questions != None:
-            sql_str = "INSERT IGNORE INTO TOPIC (NAME, LAST_VISIT, LINK_ID, ADD_TIME) VALUES (%s, %s, %s, %s)"
-            topicList = []
-            for topic in topics:
-                topicName = topic.get_text().replace('\n','')
-                topicUrl = topic.get('href').replace('/topic/','')
-                #sql_str = sql_str + "('" + topicName + "',0," + topicUrl + "," + str(time_now) + "),"
-                topicList = topicList + [(topicName, 0, topicUrl, time_now)]
-            
-            self.cursor.executemany(sql_str,topicList)
+        # topics = soup.findAll('a',attrs={'class':'zm-item-tag'})
+        # if questions != None:
+        #     sql_str = "INSERT IGNORE INTO TOPIC (NAME, LAST_VISIT, LINK_ID, ADD_TIME) VALUES (%s, %s, %s, %s)"
+        #     topicList = []
+        #     for topic in topics:
+        #         topicName = topic.get_text().replace('\n','')
+        #         topicUrl = topic.get('href').replace('/topic/','')
+        #         #sql_str = sql_str + "('" + topicName + "',0," + topicUrl + "," + str(time_now) + "),"
+        #         topicList = topicList + [(topicName, 0, topicUrl, time_now)]
+        #
+        #     self.cursor.executemany(sql_str,topicList)
 
 
 class UpdateQuestions:
@@ -145,7 +147,7 @@ class UpdateQuestions:
         sql = "SELECT LINK_ID from QUESTION WHERE LAST_VISIT < %s AND ADD_TIME > %s AND ANSWER < 8 AND TOP_ANSWER_NUMBER < 50 ORDER BY LAST_VISIT"
         self.cursor.execute(sql,(before_last_visit_time,after_add_time))
         results = self.cursor.fetchall()
-        
+
         i = 0
         
         for row in results:
