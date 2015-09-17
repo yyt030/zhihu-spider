@@ -1,11 +1,8 @@
 # coding=utf-8
 import MySQLdb
 from bs4 import BeautifulSoup
-import json
 import re
 import time
-from math import ceil
-import logging
 import threading
 import Queue
 import ConfigParser
@@ -42,8 +39,8 @@ class UpdateOneTopic(threading.Thread):
 
     def find_new_question_by_topic(self, link_id, count_id):
         new_question_amount_total = 0
-        for i in range(1, 7):
-            topic_url = 'http://www.zhihu.com/topic/' + link_id + '/questions?page=' + str(i)
+        for i in xrange(1, 7):
+            topic_url = 'http://www.zhihu.com/topic/' + link_id + '/top-answers?page=' + str(i)
             new_question_amount_one_page = self.find_question_by_link(topic_url, count_id)
             new_question_amount_total = new_question_amount_total + new_question_amount_one_page
 
@@ -57,6 +54,7 @@ class UpdateOneTopic(threading.Thread):
         time_now = int(time.time())
         sql = "UPDATE topic SET LAST_VISIT = %s WHERE LINK_ID = %s"
         self.cursor.execute(sql, (time_now, link_id))
+        self.db.commit()
 
     def find_question_by_link(self, topic_url, count_id):
         content = get_content(topic_url, count_id)
@@ -66,37 +64,64 @@ class UpdateOneTopic(threading.Thread):
 
         soup = BeautifulSoup(content, 'lxml')
 
-        question_answers = soup.findAll('div', attrs={'class': 'content'})
+        question_links = soup.findAll('a', attrs={'class': 'question_link'})
+
+        rowcount = 0
+        for question_link in question_links:
+            # get question id and name
+            question_link = question_link.get('href')
+            if question_link:
+                question_url = 'http://www.zhihu.com' + question_link
+                rowcount += self.find_answers_by_question_url(question_url, count_id)
+        return rowcount
+
+    def find_answers_by_question_url(self, question_url, count_id):
+        content = get_content(question_url, count_id)
+        if content == 'Fail':
+            return 0
+        content = BeautifulSoup(content, 'lxml')
+
+        question_name = content.find(name='div', id='zh-question-title')
+        if not question_name:
+            return 0
+
+        question_name = question_name.find('h2').get_text().strip()
+
+        answer_num = content.find(name='h3', id='zh-question-answer-num')
+        if not answer_num:
+            return 0
+        answer_num = answer_num.get('data-num')
+        get_answer_num = 10
+
+        if 0 < int(answer_num) <= get_answer_num and int(answer_num) > 0:
+            get_answer_num = answer_num
+        if answer_num <= 0:
+            return 0
 
         question_list = []
         answer_detail_list = []
         time_now = int(time.time())
+        question_id = re.sub('.*/', '', question_url)
+        question_list = question_list + [(question_name, int(question_id), 0, 0, 0, time_now, 0)]
 
-        for question_answer in question_answers:
-            # get question id and name
-            question = question_answer.find(name='a', attrs={'class': 'question_link'})
-            if question:
-                question_id = question.get('href').replace('/question/', '')
-                question_name = re.sub('[\n ]', '', question.get_text())
+        answers = content.findAll(name='div', attrs={'class': 'zm-item-answer'}, limit=get_answer_num)
+        for answer in answers:
+            answer_author_info = answer.find(name='h3', attrs={'class': 'zm-item-answer-author-wrap'}).findAll('a')
+            if not answer_author_info:
+                continue
 
-                question_list = question_list + [(question_name, int(question_id), 0, 0, 0, time_now, 0)]
+            answer_author_id = answer_author_info[1].get('href').replace('/people/', '')
+            answer_author_name = answer_author_info[1].get_text()
 
-            # get answer detail and author
-            answer_author = question_answer.find(name='h3', attrs={'class': 'zm-item-answer-author-wrap'})
-            if answer_author:
-                try:
-                    answer_author_id = answer_author.find(name='a')
-                    answer_author_id = answer_author_id.get('href').replace('/people/', '')
-                    answer_author_name = answer_author.find(name='a').get_text()
+            answer_detail = answer.find(name='div', attrs={'class': ' zm-editable-content clearfix'})
+            answer_detail = str(answer_detail).replace('<div class=" zm-editable-content clearfix">','').replace('</div>','').strip()
 
-                    answer_detail = question_answer.find(name='textarea', attrs={'class': 'content hidden'})
-                    answer_detail = answer_detail.get_text()
-                except AttributeError as e:
-                    print e.args, e.message
-                    continue
+            if not answer_detail:
+                continue
+            # append list
 
-                answer_detail_list = answer_detail_list + [
-                    (answer_author_id, answer_author_name, int(question_id), answer_detail)]
+            answer_detail_list = answer_detail_list + [
+                (answer_author_id, answer_author_name, int(question_id), answer_detail)]
 
         # insert data to DB
         question_sql = 'insert ignore into question (name, link_id, focus, answer, last_visit, add_time, top_answer_number) ' \
